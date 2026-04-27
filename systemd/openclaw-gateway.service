@@ -1,0 +1,21 @@
+[Unit]
+Description=openclaw gateway (Telegram + tools + local-llm provider)
+Documentation=https://github.com/openclaw
+After=network-online.target llama-qwen-8b.service
+Wants=network-online.target
+Requires=llama-qwen-8b.service
+
+[Service]
+Type=simple
+User=raz
+Group=raz
+WorkingDirectory=/home/raz
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/home/raz/.local/bin:/home/raz/.npm-global/bin
+ExecStart=/usr/bin/openclaw-gateway
+Restart=on-failure
+RestartSec=10
+LimitNOFILE=65536
+
+[Install]
+WantedBy=agent-brick.target

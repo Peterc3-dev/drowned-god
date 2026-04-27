@@ -1,0 +1,18 @@
+[package]
+name = "bw-probe"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[[bin]]
+name = "bw-probe"
+path = "src/main.rs"
+
+[dependencies]
+ash = "0.38"
+anyhow = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1

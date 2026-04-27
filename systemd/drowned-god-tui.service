@@ -1,0 +1,29 @@
+[Unit]
+Description=Drowned God TUI cockpit on tty1
+After=llama-qwen-8b.service systemd-user-sessions.service
+Wants=llama-qwen-8b.service
+# NOTE: getty@tty1.service is masked by install.sh so it cannot start.
+# Do NOT use Conflicts=+After= here — the After is ignored when Conflicts
+# triggers a stop transaction in parallel and the TUI will race the getty
+# teardown ending in "Inappropriate ioctl for device".
+
+[Service]
+Type=simple
+User=raz
+Group=raz
+WorkingDirectory=/home/raz/projects/drowned-god
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+StandardInput=tty
+StandardOutput=tty
+StandardError=journal
+Environment=TERM=xterm-256color
+Environment=DG_LLAMA_URL=http://127.0.0.1:8080
+Environment=DG_FLM_URL=http://127.0.0.1:52625
+ExecStart=/home/raz/projects/drowned-god/tui/target/release/drowned-god
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=agent-brick.target

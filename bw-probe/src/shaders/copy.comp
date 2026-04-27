@@ -1,0 +1,22 @@
+// Wide-load copy: each invocation reads 4 uvec4 (256 bits = 32 B) and writes the same.
+// Stride pattern coalesces across the workgroup. Total bytes touched per invocation: 64 B (32 r + 32 w).
+#version 450
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) buffer Src { uvec4 src[]; };
+layout(set = 0, binding = 1) buffer Dst { uvec4 dst[]; };
+
+layout(push_constant) uniform PC {
+    uint n_vec4;   // total uvec4 elements in src/dst
+    uint loops;    // repeat the whole copy this many times for stable timing
+};
+
+void main() {
+    uint tid = gl_GlobalInvocationID.x;
+    uint stride = gl_NumWorkGroups.x * gl_WorkGroupSize.x;
+    for (uint l = 0; l < loops; ++l) {
+        for (uint i = tid; i < n_vec4; i += stride) {
+            dst[i] = src[i];
+        }
+    }
+}

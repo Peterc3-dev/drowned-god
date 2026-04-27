@@ -1,0 +1,34 @@
+[Unit]
+Description=llama-server: Qwen3.6-27B-Q4_K_M (no spec dec — SSM wall blocks draft)
+Documentation=file:///home/raz/projects/drowned-god/README.md
+After=network-online.target
+Wants=network-online.target
+# 27B is the heavy mode; do NOT enable alongside llama-qwen-8b unless BIOS UMA bumped
+ConditionPathExists=/home/raz/models/Qwen3.6-27B-Q3_K_M/Qwen_Qwen3.6-27B-Q3_K_M.gguf
+
+[Service]
+Type=simple
+User=raz
+Group=raz
+Environment=HSA_OVERRIDE_GFX_VERSION=11.0.0
+# Defaults to Q3_K_M (depth tier @ ~6 t/s, +13% vs Q4_K_M, K-quant fast path).
+# Override to Q4_K_M with: systemctl edit llama-qwen36-27b
+ExecStart=/usr/local/bin/llama-server \
+  -m /home/raz/models/Qwen3.6-27B-Q3_K_M/Qwen_Qwen3.6-27B-Q3_K_M.gguf \
+  -ngl 99 -t 8 \
+  --jinja --reasoning-format deepseek \
+  --port 8080 --host 0.0.0.0 \
+  -c 8192 --cache-ram 1024 --reasoning-budget 0 \
+  -ctk q8_0 -ctv q8_0 --flash-attn 1 \
+  --metrics
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+Nice=-5
+AmbientCapabilities=CAP_SYS_NICE
+CapabilityBoundingSet=CAP_SYS_NICE
+IOSchedulingClass=best-effort
+IOSchedulingPriority=0
+
+[Install]
+# Not in agent-brick.target by default — opt-in via `systemctl enable llama-qwen36-27b`

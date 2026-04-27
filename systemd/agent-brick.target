@@ -1,0 +1,10 @@
+[Unit]
+Description=Drowned God Agent-Brick Mode (headless TUI agent rig)
+Documentation=file:///home/raz/projects/drowned-god/README.md
+Requires=multi-user.target
+After=multi-user.target
+Conflicts=graphical.target
+AllowIsolate=yes
+
+[Install]
+WantedBy=multi-user.target

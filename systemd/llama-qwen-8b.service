@@ -1,0 +1,36 @@
+[Unit]
+Description=llama-server: Qwen3-8B-Q4_K_M target + Qwen3-1.7B draft (spec dec)
+Documentation=file:///home/raz/projects/drowned-god/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=raz
+Group=raz
+Environment=HSA_OVERRIDE_GFX_VERSION=11.0.0
+ExecStart=/usr/local/bin/llama-server \
+  -m /home/raz/models/Qwen3-8B-Q4_K_M/Qwen3-8B-Q4_K_M.gguf \
+  -md /home/raz/models/Qwen3-1.7B-Q4_K_M/Qwen3-1.7B-Q4_K_M.gguf \
+  -ngl 99 -ngld 99 -t 8 \
+  --jinja --reasoning-format deepseek \
+  --port 8080 --host 0.0.0.0 \
+  -c 16384 --cache-ram 1024 --reasoning-budget 0 \
+  -ctk q8_0 -ctv q8_0 --flash-attn 1 \
+  -ctkd q8_0 -ctvd q8_0 \
+  --draft-max 16 --draft-min 4 --draft-p-min 0.7 \
+  --metrics
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+# brick-mode niceness: prefer the model over background work.
+# Nice=-5 needs CAP_SYS_NICE; granted via Ambient/Bounding caps below.
+# IOSchedulingClass=realtime requires CAP_SYS_ADMIN — dropped (best-effort is fine).
+Nice=-5
+AmbientCapabilities=CAP_SYS_NICE
+CapabilityBoundingSet=CAP_SYS_NICE
+IOSchedulingClass=best-effort
+IOSchedulingPriority=0
+
+[Install]
+WantedBy=agent-brick.target

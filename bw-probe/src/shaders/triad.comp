@@ -1,0 +1,28 @@
+// STREAM triad on uvec4: a[i] = b[i] + scalar * c[i] (interpreted as uint adds).
+// Bytes touched per invocation iteration: 48 (3 buffers × 16 B per uvec4).
+// We reinterpret as uint so we can do real arithmetic without involving FP units;
+// keeps the kernel pure-bandwidth.
+#version 450
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) buffer A { uvec4 a[]; };
+layout(set = 0, binding = 1) buffer B { uvec4 b[]; };
+layout(set = 0, binding = 2) buffer C { uvec4 c[]; };
+
+layout(push_constant) uniform PC {
+    uint n_vec4;
+    uint loops;
+    uint scalar;
+};
+
+void main() {
+    uint tid = gl_GlobalInvocationID.x;
+    uint stride = gl_NumWorkGroups.x * gl_WorkGroupSize.x;
+    for (uint l = 0; l < loops; ++l) {
+        for (uint i = tid; i < n_vec4; i += stride) {
+            uvec4 bi = b[i];
+            uvec4 ci = c[i];
+            a[i] = bi + scalar * ci;
+        }
+    }
+}

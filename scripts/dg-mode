@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# dg-mode — switch between graphical and agent-brick modes
+# Usage: dg-mode brick|dev|status
+set -euo pipefail
+
+case "${1:-status}" in
+  brick)
+    echo "[*] switching to agent-brick.target (this will kill GUI session)"
+    echo "[*] you'll be dropped to tty1 with the Drowned God TUI — switch back"
+    echo "[*] from another tty: 'sudo systemctl isolate graphical.target'"
+    read -r -p "Continue? [y/N] " ans
+    [[ "$ans" == "y" || "$ans" == "Y" ]] || { echo "aborted"; exit 1; }
+    sudo systemctl isolate agent-brick.target
+    ;;
+  dev)
+    echo "[*] switching to graphical.target"
+    sudo systemctl isolate graphical.target
+    ;;
+  status)
+    echo "current target: $(systemctl get-default)"
+    echo "active target:  $(systemctl list-units --type=target --state=active --no-legend | awk '/(graphical|multi-user|agent-brick)\.target/{print $1}' | head -1)"
+    echo
+    echo "free memory:"
+    free -h | head -3
+    echo
+    echo "llama-server status:"
+    systemctl is-active llama-qwen-8b.service llama-qwen36-27b.service openclaw-gateway.service drowned-god-tui.service 2>/dev/null \
+      | paste -d' ' <(echo -e "llama-qwen-8b\nllama-qwen36-27b\nopenclaw-gateway\ndrowned-god-tui") -
+    ;;
+  *)
+    echo "usage: $0 brick|dev|status"
+    exit 1
+    ;;
+esac
