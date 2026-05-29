@@ -81,10 +81,7 @@ async fn do_request(
         let snippet: String = text.chars().take(300).collect();
         return Err(anyhow!("server returned {status}: {}", snippet));
     }
-    let parsed: ChatResponse = resp
-        .json()
-        .await
-        .context("response not valid JSON")?;
+    let parsed: ChatResponse = resp.json().await.context("response not valid JSON")?;
     let content = parsed
         .choices
         .into_iter()

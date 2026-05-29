@@ -65,7 +65,8 @@ struct App {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let llama_url = std::env::var("DG_LLAMA_URL").unwrap_or_else(|_| "http://127.0.0.1:8080".into());
+    let llama_url =
+        std::env::var("DG_LLAMA_URL").unwrap_or_else(|_| "http://127.0.0.1:8080".into());
     let flm_url = std::env::var("DG_FLM_URL").unwrap_or_else(|_| "http://127.0.0.1:52625".into());
 
     let telem = Arc::new(Mutex::new(Telemetry::default()));
@@ -86,7 +87,11 @@ async fn main() -> Result<()> {
     let res = run_app(&mut terminal, &mut app, &telem, http_client, llama_url).await;
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
     res
 }
@@ -144,7 +149,8 @@ async fn run_app<B: ratatui::backend::Backend>(
                     if app.chat.last().map(|s| s.as_str()) == Some("< …") {
                         app.chat.pop();
                     }
-                    app.chat.push("[err] chat task dropped without reply".into());
+                    app.chat
+                        .push("[err] chat task dropped without reply".into());
                     if matches!(app.history.last(), Some(m) if m.role == "user") {
                         app.history.pop();
                     }
@@ -160,14 +166,14 @@ async fn run_app<B: ratatui::backend::Backend>(
                 }
                 match k.code {
                     KeyCode::Char('q') | KeyCode::Esc => app.quit = true,
-                    KeyCode::Up => {
-                        if app.selected_model > 0 {
-                            app.selected_model -= 1;
-                        }
+                    KeyCode::Up if app.selected_model > 0 => {
+                        app.selected_model -= 1;
                     }
                     KeyCode::Down => {
                         // bound by total models known (local + NPU); polled snapshot
-                        let max = (snapshot.flm_models.len() + if snapshot.llama_alive { 1 } else { 0 }).saturating_sub(1);
+                        let max = (snapshot.flm_models.len()
+                            + if snapshot.llama_alive { 1 } else { 0 })
+                        .saturating_sub(1);
                         if app.selected_model < max {
                             app.selected_model += 1;
                         }
@@ -239,7 +245,10 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App, t: &Telemetry) {
 
     // Corner TL
     let tl = corners::frame_tl(app.tick);
-    let tl_lines: Vec<Line> = tl.iter().map(|s| Line::from(Span::styled(*s, p::s_pane_border()))).collect();
+    let tl_lines: Vec<Line> = tl
+        .iter()
+        .map(|s| Line::from(Span::styled(*s, p::s_pane_border())))
+        .collect();
     f.render_widget(Paragraph::new(tl_lines), cols[0]);
 
     // Center: rig name + target model + clock
@@ -248,18 +257,33 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App, t: &Telemetry) {
         Line::from(vec![
             Span::styled("D R O W N E D   G O D ", p::s_title()),
             Span::styled("· cockpit · ", p::s_text_dim()),
-            Span::styled(format!("rig: raz-gpd4 "), p::s_text()),
+            Span::styled("rig: raz-gpd4 ".to_string(), p::s_text()),
             Span::styled(format!("· {}", now), p::s_text_dim()),
         ]),
         Line::from(vec![
             Span::styled("target: ", p::s_text_dim()),
-            Span::styled(if t.llama_alive { &t.llama_model } else { "(offline)" }, p::s_live()),
+            Span::styled(
+                if t.llama_alive {
+                    &t.llama_model
+                } else {
+                    "(offline)"
+                },
+                p::s_live(),
+            ),
             Span::styled("   draft: ", p::s_text_dim()),
             Span::styled("Qwen3-1.7B-Q4_K_M", p::s_text()),
             Span::styled("   NPU: ", p::s_text_dim()),
             Span::styled(
-                if t.flm_alive { format!("{} models", t.flm_models.len()) } else { "offline".into() },
-                if t.flm_alive { p::s_live() } else { p::s_idle() },
+                if t.flm_alive {
+                    format!("{} models", t.flm_models.len())
+                } else {
+                    "offline".into()
+                },
+                if t.flm_alive {
+                    p::s_live()
+                } else {
+                    p::s_idle()
+                },
             ),
         ]),
         Line::from(vec![
@@ -268,15 +292,19 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App, t: &Telemetry) {
             Span::styled("   ctx: ", p::s_text_dim()),
             Span::styled(format!("{}", t.llama_n_ctx), p::s_text()),
         ]),
-        Line::from(vec![
-            Span::styled("─".repeat(area.width.saturating_sub(corners::CORNER_W * 2) as usize), p::s_pane_border()),
-        ]),
+        Line::from(vec![Span::styled(
+            "─".repeat(area.width.saturating_sub(corners::CORNER_W * 2) as usize),
+            p::s_pane_border(),
+        )]),
     ];
     f.render_widget(Paragraph::new(header_lines), cols[1]);
 
     // Corner TR
     let tr = corners::frame_tr(app.tick);
-    let tr_lines: Vec<Line> = tr.iter().map(|s| Line::from(Span::styled(*s, p::s_pane_border()))).collect();
+    let tr_lines: Vec<Line> = tr
+        .iter()
+        .map(|s| Line::from(Span::styled(*s, p::s_pane_border())))
+        .collect();
     f.render_widget(Paragraph::new(tr_lines), cols[2]);
 }
 
@@ -312,14 +340,24 @@ fn draw_body(f: &mut Frame, area: Rect, app: &App, t: &Telemetry) {
 
 fn draw_models(f: &mut Frame, area: Rect, _app: &App, t: &Telemetry) {
     let mut items: Vec<ListItem> = Vec::new();
-    let local: Vec<&str> = if t.llama_alive { vec![t.llama_model.as_str()] } else { vec![] };
+    let local: Vec<&str> = if t.llama_alive {
+        vec![t.llama_model.as_str()]
+    } else {
+        vec![]
+    };
     for m in local {
         items.push(ListItem::new(Span::styled(format!("● {}", m), p::s_live())));
     }
     for m in &t.flm_models {
-        items.push(ListItem::new(Span::styled(format!("∘ NPU/{}", m), p::s_text_dim())));
+        items.push(ListItem::new(Span::styled(
+            format!("∘ NPU/{}", m),
+            p::s_text_dim(),
+        )));
     }
-    let block = Block::default().title(Span::styled(" MODELS ", p::s_title())).borders(Borders::ALL).border_style(p::s_pane_border());
+    let block = Block::default()
+        .title(Span::styled(" MODELS ", p::s_title()))
+        .borders(Borders::ALL)
+        .border_style(p::s_pane_border());
     let list = List::new(items).block(block).highlight_style(p::s_warn());
     f.render_widget(list, area);
 }
@@ -330,28 +368,65 @@ fn draw_chat(f: &mut Frame, area: Rect, app: &App) {
         .constraints([Constraint::Min(3), Constraint::Length(3)])
         .split(area);
 
-    let lines: Vec<Line> = app.chat.iter().rev().take(inner[0].height as usize).rev().map(|s| {
-        let style = if s.starts_with('>') { p::s_live() } else if s.starts_with("[boot]") { p::s_text_dim() } else { p::s_text() };
-        Line::from(Span::styled(s.as_str(), style))
-    }).collect();
-    let block = Block::default().title(Span::styled(" CHAT ", p::s_title())).borders(Borders::ALL).border_style(p::s_pane_border());
-    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), inner[0]);
+    let lines: Vec<Line> = app
+        .chat
+        .iter()
+        .rev()
+        .take(inner[0].height as usize)
+        .rev()
+        .map(|s| {
+            let style = if s.starts_with('>') {
+                p::s_live()
+            } else if s.starts_with("[boot]") {
+                p::s_text_dim()
+            } else {
+                p::s_text()
+            };
+            Line::from(Span::styled(s.as_str(), style))
+        })
+        .collect();
+    let block = Block::default()
+        .title(Span::styled(" CHAT ", p::s_title()))
+        .borders(Borders::ALL)
+        .border_style(p::s_pane_border());
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        inner[0],
+    );
 
     let prompt = format!("> {}_", app.input);
-    let input_block = Block::default().borders(Borders::ALL).border_style(p::s_pane_border());
-    f.render_widget(Paragraph::new(Span::styled(prompt, p::s_live())).block(input_block), inner[1]);
+    let input_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(p::s_pane_border());
+    f.render_widget(
+        Paragraph::new(Span::styled(prompt, p::s_live())).block(input_block),
+        inner[1],
+    );
 }
 
 fn draw_tool_log(f: &mut Frame, area: Rect, app: &App) {
-    let lines: Vec<Line> = app.tool_log.iter().rev().take(area.height.saturating_sub(2) as usize).rev().map(|s| {
-        Line::from(Span::styled(s.as_str(), p::s_text_dim()))
-    }).collect();
-    let block = Block::default().title(Span::styled(" TOOL LOG ", p::s_title())).borders(Borders::ALL).border_style(p::s_pane_border());
+    let lines: Vec<Line> = app
+        .tool_log
+        .iter()
+        .rev()
+        .take(area.height.saturating_sub(2) as usize)
+        .rev()
+        .map(|s| Line::from(Span::styled(s.as_str(), p::s_text_dim())))
+        .collect();
+    let block = Block::default()
+        .title(Span::styled(" TOOL LOG ", p::s_title()))
+        .borders(Borders::ALL)
+        .border_style(p::s_pane_border());
     f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
 fn draw_gauges(f: &mut Frame, area: Rect, t: &Telemetry) {
-    let block = Block::default().title(Span::styled(" GAUGES ", p::s_title())).borders(Borders::ALL).border_style(p::s_pane_border());
+    let block = Block::default()
+        .title(Span::styled(" GAUGES ", p::s_title()))
+        .borders(Borders::ALL)
+        .border_style(p::s_pane_border());
     f.render_widget(block.clone(), area);
     let inner = block.inner(area);
 
@@ -367,21 +442,59 @@ fn draw_gauges(f: &mut Frame, area: Rect, t: &Telemetry) {
         ])
         .split(inner);
 
-    let mem_pct = if t.mem_total_mb > 0 { (t.mem_used_mb * 100 / t.mem_total_mb) as u16 } else { 0 };
-    let vram_pct = if t.vram_total_mb > 0 { (t.vram_used_mb * 100 / t.vram_total_mb) as u16 } else { 0 };
+    let mem_pct = (t.mem_used_mb * 100)
+        .checked_div(t.mem_total_mb)
+        .unwrap_or(0) as u16;
+    let vram_pct = (t.vram_used_mb * 100)
+        .checked_div(t.vram_total_mb)
+        .unwrap_or(0) as u16;
     let acc_pct = (t.last_accept_rate * 100.0).clamp(0.0, 100.0) as u16;
     let cpu_pct = t.cpu_pct.clamp(0.0, 100.0) as u16;
 
-    f.render_widget(gauge("TG  t/s", (t.last_tg_tps.min(50.0) * 2.0) as u16, &format!("{:.1}", t.last_tg_tps)), rows[0]);
-    f.render_widget(gauge("PP  t/s", (t.last_pp_tps.min(500.0) / 5.0) as u16, &format!("{:.0}", t.last_pp_tps)), rows[1]);
+    f.render_widget(
+        gauge(
+            "TG  t/s",
+            (t.last_tg_tps.min(50.0) * 2.0) as u16,
+            &format!("{:.1}", t.last_tg_tps),
+        ),
+        rows[0],
+    );
+    f.render_widget(
+        gauge(
+            "PP  t/s",
+            (t.last_pp_tps.min(500.0) / 5.0) as u16,
+            &format!("{:.0}", t.last_pp_tps),
+        ),
+        rows[1],
+    );
     f.render_widget(gauge("ACCEPT", acc_pct, &format!("{}%", acc_pct)), rows[2]);
-    f.render_widget(gauge("MEM   ", mem_pct, &format!("{}/{}G", t.mem_used_mb / 1024, t.mem_total_mb / 1024)), rows[3]);
-    f.render_widget(gauge("VRAM  ", vram_pct, &format!("{}/{}G", t.vram_used_mb / 1024, t.vram_total_mb / 1024)), rows[4]);
+    f.render_widget(
+        gauge(
+            "MEM   ",
+            mem_pct,
+            &format!("{}/{}G", t.mem_used_mb / 1024, t.mem_total_mb / 1024),
+        ),
+        rows[3],
+    );
+    f.render_widget(
+        gauge(
+            "VRAM  ",
+            vram_pct,
+            &format!("{}/{}G", t.vram_used_mb / 1024, t.vram_total_mb / 1024),
+        ),
+        rows[4],
+    );
     f.render_widget(gauge("CPU   ", cpu_pct, &format!("{}%", cpu_pct)), rows[5]);
 }
 
 fn gauge<'a>(label: &'a str, pct: u16, value: &'a str) -> Gauge<'a> {
-    let style = if pct > 85 { p::s_warn() } else if pct > 60 { p::s_live() } else { p::s_text() };
+    let style = if pct > 85 {
+        p::s_warn()
+    } else if pct > 60 {
+        p::s_live()
+    } else {
+        p::s_text()
+    };
     Gauge::default()
         .gauge_style(style)
         .ratio((pct as f64 / 100.0).clamp(0.0, 1.0))
@@ -389,7 +502,10 @@ fn gauge<'a>(label: &'a str, pct: u16, value: &'a str) -> Gauge<'a> {
 }
 
 fn draw_memory(f: &mut Frame, area: Rect) {
-    let block = Block::default().title(Span::styled(" EPISODIC MEMORY ", p::s_title())).borders(Borders::ALL).border_style(p::s_pane_border());
+    let block = Block::default()
+        .title(Span::styled(" EPISODIC MEMORY ", p::s_title()))
+        .borders(Borders::ALL)
+        .border_style(p::s_pane_border());
     let lines = vec![
         Line::from(Span::styled("(TODO: wire CIN/INDEX.md", p::s_text_dim())),
         Line::from(Span::styled("       + memory/ folder)", p::s_text_dim())),
@@ -408,11 +524,17 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
         .split(area);
 
     let bl = corners::frame_bl(app.tick);
-    let bl_lines: Vec<Line> = bl.iter().map(|s| Line::from(Span::styled(*s, p::s_pane_border()))).collect();
+    let bl_lines: Vec<Line> = bl
+        .iter()
+        .map(|s| Line::from(Span::styled(*s, p::s_pane_border())))
+        .collect();
     f.render_widget(Paragraph::new(bl_lines), cols[0]);
 
     let footer_lines = vec![
-        Line::from(Span::styled("─".repeat(area.width.saturating_sub(corners::CORNER_W * 2) as usize), p::s_pane_border())),
+        Line::from(Span::styled(
+            "─".repeat(area.width.saturating_sub(corners::CORNER_W * 2) as usize),
+            p::s_pane_border(),
+        )),
         Line::from(vec![
             Span::styled(" [↑↓] model  ", p::s_text_dim()),
             Span::styled(" [enter] send  ", p::s_text_dim()),
@@ -422,12 +544,18 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
             Span::styled(" sonar: ", p::s_text_dim()),
             Span::styled(sonar_pulse(app.tick), p::s_live()),
         ]),
-        Line::from(Span::styled("·".repeat(area.width.saturating_sub(corners::CORNER_W * 2) as usize), p::s_text_dim())),
+        Line::from(Span::styled(
+            "·".repeat(area.width.saturating_sub(corners::CORNER_W * 2) as usize),
+            p::s_text_dim(),
+        )),
     ];
     f.render_widget(Paragraph::new(footer_lines), cols[1]);
 
     let br = corners::frame_br(app.tick);
-    let br_lines: Vec<Line> = br.iter().map(|s| Line::from(Span::styled(*s, p::s_pane_border()))).collect();
+    let br_lines: Vec<Line> = br
+        .iter()
+        .map(|s| Line::from(Span::styled(*s, p::s_pane_border())))
+        .collect();
     f.render_widget(Paragraph::new(br_lines), cols[2]);
 }
 
@@ -441,5 +569,60 @@ fn sonar_pulse(tick: u64) -> &'static str {
         5 => "·····◉ ",
         6 => "······◉",
         _ => "·······",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sonar_pulse_total_cycle_is_32_ticks() {
+        // Frame advances every 4 ticks across 8 phases => period 32.
+        for t in 0..256u64 {
+            assert_eq!(sonar_pulse(t), sonar_pulse(t + 32));
+        }
+    }
+
+    #[test]
+    fn sonar_pulse_never_empty_and_walks() {
+        // Each phase string is non-empty and the leading dots grow then reset.
+        assert_eq!(sonar_pulse(0), "◉      ");
+        assert_eq!(sonar_pulse(4), "·◉     ");
+        assert_eq!(sonar_pulse(28), "·······");
+        for t in 0..64u64 {
+            assert!(!sonar_pulse(t).is_empty());
+        }
+    }
+
+    #[test]
+    fn every_corner_frame_has_corner_h_rows() {
+        // Render code indexes these as fixed-height sprites; guard the invariant.
+        for tick in 0..64u64 {
+            assert_eq!(corners::frame_tl(tick).len(), corners::CORNER_H as usize);
+            assert_eq!(corners::frame_tr(tick).len(), corners::CORNER_H as usize);
+            assert_eq!(corners::frame_bl(tick).len(), corners::CORNER_H as usize);
+            assert_eq!(corners::frame_br(tick).len(), corners::CORNER_H as usize);
+        }
+    }
+
+    #[test]
+    fn history_truncation_keeps_last_turns() {
+        // Mirrors the sliding-window logic in run_app: keep last MAX_TURNS*2.
+        const MAX_TURNS: usize = 24;
+        let mut history: Vec<ChatMessage> = (0..100)
+            .map(|i| ChatMessage {
+                role: if i % 2 == 0 { "user" } else { "assistant" }.to_string(),
+                content: format!("m{i}"),
+            })
+            .collect();
+        if history.len() > MAX_TURNS * 2 {
+            let drop_n = history.len() - MAX_TURNS * 2;
+            history.drain(..drop_n);
+        }
+        assert_eq!(history.len(), MAX_TURNS * 2);
+        // Oldest retained message is m52 (100 - 48).
+        assert_eq!(history.first().unwrap().content, "m52");
+        assert_eq!(history.last().unwrap().content, "m99");
     }
 }

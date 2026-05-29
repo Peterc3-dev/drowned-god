@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The TUI crate has no native-toolchain dependencies, so it gets the full
+  # fmt + clippy (-D warnings) + build + test treatment.
+  tui:
+    name: tui (fmt / clippy / build / test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tui
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --release --all-targets -- -D warnings
+      - name: build
+        run: cargo build --release
+      - name: test
+        run: cargo test --release
+
+  # bw-probe links Vulkan and compiles GLSL with glslc at build time, so it
+  # needs the Vulkan loader/headers and shaderc. fmt + clippy still run; build
+  # and test require those system packages.
+  bw-probe:
+    name: bw-probe (fmt / clippy / build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bw-probe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bw-probe
+      - name: Install Vulkan loader + glslc (shaderc)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan-dev glslc
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --release --all-targets -- -D warnings
+      - name: build
+        run: cargo build --release
+
+  scripts:
+    name: scripts (shellcheck / python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python syntax check
+        run: python -m py_compile scripts/specdec_harness.py
+      - name: Bash syntax check
+        run: |
+          for f in install.sh uninstall.sh scripts/dg-mode scripts/phase3-bench.sh; do
+            bash -n "$f"
+          done
+      - name: shellcheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          ignore_paths: tui bw-probe

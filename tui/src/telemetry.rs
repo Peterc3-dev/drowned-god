@@ -63,10 +63,16 @@ pub fn spawn(state: Arc<Mutex<Telemetry>>, llama_url: String, flm_url: String) {
             let cpu = sys.global_cpu_usage();
 
             let (llama_alive, llama_model, n_ctx) = poll_llama(&client, &llama_url).await;
-            let (tg_tps, pp_tps) = if llama_alive { poll_llama_metrics(&client, &llama_url).await } else { (0.0, 0.0) };
+            let (tg_tps, pp_tps) = if llama_alive {
+                poll_llama_metrics(&client, &llama_url).await
+            } else {
+                (0.0, 0.0)
+            };
             let (flm_alive, flm_models) = poll_flm(&client, &flm_url).await;
             // rocm-smi is synchronous (subprocess) — push to a blocking-thread pool.
-            let vram = tokio::task::spawn_blocking(poll_rocm_vram).await.unwrap_or((0, 0));
+            let vram = tokio::task::spawn_blocking(poll_rocm_vram)
+                .await
+                .unwrap_or((0, 0));
             let (vram_used, vram_total) = vram;
 
             if let Ok(mut t) = state.lock() {
@@ -116,24 +122,34 @@ async fn poll_llama_metrics(client: &reqwest::Client, base: &str) -> (f32, f32) 
     match client.get(&url).send().await {
         Ok(r) if r.status().is_success() => {
             let body = r.text().await.unwrap_or_default();
-            let mut tg = 0.0f32;
-            let mut pp = 0.0f32;
-            for line in body.lines() {
-                let line = line.trim();
-                if line.starts_with('#') || line.is_empty() {
-                    continue;
-                }
-                let val: f32 = line.split_whitespace().last().and_then(|s| s.parse::<f32>().ok()).unwrap_or(0.0);
-                if line.starts_with("llamacpp:predicted_tokens_seconds") {
-                    tg = val;
-                } else if line.starts_with("llamacpp:prompt_tokens_seconds") {
-                    pp = val;
-                }
-            }
-            (tg, pp)
+            parse_llama_metrics(&body)
         }
         _ => (0.0, 0.0),
     }
+}
+
+/// Pure parser for llama-server's Prometheus exposition text.
+/// Returns (tg_tps, pp_tps); each defaults to 0.0 if its line is absent.
+fn parse_llama_metrics(body: &str) -> (f32, f32) {
+    let mut tg = 0.0f32;
+    let mut pp = 0.0f32;
+    for line in body.lines() {
+        let line = line.trim();
+        if line.starts_with('#') || line.is_empty() {
+            continue;
+        }
+        let val: f32 = line
+            .split_whitespace()
+            .last()
+            .and_then(|s| s.parse::<f32>().ok())
+            .unwrap_or(0.0);
+        if line.starts_with("llamacpp:predicted_tokens_seconds") {
+            tg = val;
+        } else if line.starts_with("llamacpp:prompt_tokens_seconds") {
+            pp = val;
+        }
+    }
+    (tg, pp)
 }
 
 async fn poll_flm(client: &reqwest::Client, base: &str) -> (bool, Vec<String>) {
@@ -156,9 +172,18 @@ fn poll_rocm_vram() -> (u64, u64) {
     let out = Command::new("rocm-smi")
         .args(["--showmeminfo", "vram", "--csv"])
         .output();
-    let Ok(out) = out else { return (0, 0); };
+    let Ok(out) = out else {
+        return (0, 0);
+    };
     let s = String::from_utf8_lossy(&out.stdout);
-    // Format: "device,VRAM Total Memory (B),VRAM Total Used Memory (B)\ncard0,17179869184,1234567890"
+    parse_rocm_vram_csv(&s)
+}
+
+/// Pure parser for `rocm-smi --showmeminfo vram --csv` output.
+/// Returns (used_mb, total_mb). (0, 0) when no data row parses.
+/// Format: "device,VRAM Total Memory (B),VRAM Total Used Memory (B)\n
+///          card0,17179869184,1234567890"
+fn parse_rocm_vram_csv(s: &str) -> (u64, u64) {
     let mut total = 0u64;
     let mut used = 0u64;
     for line in s.lines().skip(1) {
@@ -172,6 +197,11 @@ fn poll_rocm_vram() -> (u64, u64) {
     (used / 1024 / 1024, total / 1024 / 1024)
 }
 
+/// Push a fresh generation/prompt-eval/acceptance sample into shared state.
+/// Public hook for the chat path to report per-turn metrics once streaming +
+/// spec-dec acceptance reporting land; the background poller covers tg/pp in
+/// the meantime. Retained as the intended single write point for these gauges.
+#[allow(dead_code)]
 pub fn record_gen(state: &Arc<Mutex<Telemetry>>, tps: f32, pp: f32, accept: f32) {
     if let Ok(mut t) = state.lock() {
         t.last_tg_tps = tps;
@@ -179,5 +209,65 @@ pub fn record_gen(state: &Arc<Mutex<Telemetry>>, tps: f32, pp: f32, accept: f32)
         if accept > 0.0 {
             t.last_accept_rate = accept;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn metrics_parses_tg_and_pp() {
+        let body = "\
+# HELP llamacpp:prompt_tokens_seconds prompt eval rate
+# TYPE llamacpp:prompt_tokens_seconds gauge
+llamacpp:prompt_tokens_seconds 412.5
+# HELP llamacpp:predicted_tokens_seconds gen rate
+llamacpp:predicted_tokens_seconds 27.3
+llamacpp:kv_cache_usage_ratio 0.12
+";
+        let (tg, pp) = parse_llama_metrics(body);
+        assert!((tg - 27.3).abs() < 1e-3, "tg = {tg}");
+        assert!((pp - 412.5).abs() < 1e-3, "pp = {pp}");
+    }
+
+    #[test]
+    fn metrics_absent_lines_default_zero() {
+        let body = "# only comments\nllamacpp:kv_cache_usage_ratio 0.5\n";
+        assert_eq!(parse_llama_metrics(body), (0.0, 0.0));
+    }
+
+    #[test]
+    fn metrics_empty_body() {
+        assert_eq!(parse_llama_metrics(""), (0.0, 0.0));
+    }
+
+    #[test]
+    fn rocm_csv_parses_first_card_to_mb() {
+        // 16 GiB total, ~1 GiB used, in bytes.
+        let csv = "device,VRAM Total Memory (B),VRAM Total Used Memory (B)\n\
+                   card0,17179869184,1073741824\n";
+        let (used_mb, total_mb) = parse_rocm_vram_csv(csv);
+        assert_eq!(total_mb, 16384);
+        assert_eq!(used_mb, 1024);
+    }
+
+    #[test]
+    fn rocm_csv_uses_first_data_row() {
+        let csv = "device,total,used\ncard0,2097152,1048576\ncard1,4194304,2097152\n";
+        // first row: 2 MiB total, 1 MiB used
+        assert_eq!(parse_rocm_vram_csv(csv), (1, 2));
+    }
+
+    #[test]
+    fn rocm_csv_empty_or_header_only() {
+        assert_eq!(parse_rocm_vram_csv(""), (0, 0));
+        assert_eq!(parse_rocm_vram_csv("device,total,used\n"), (0, 0));
+    }
+
+    #[test]
+    fn rocm_csv_malformed_row_is_zero() {
+        let csv = "device,total,used\ncard0,not_a_number,also_bad\n";
+        assert_eq!(parse_rocm_vram_csv(csv), (0, 0));
     }
 }
