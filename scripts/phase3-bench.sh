@@ -16,7 +16,7 @@ HARNESS=/home/raz/projects/drowned-god/scripts/specdec_harness.py
 free -h > "$ART/00_pre_mem.txt"
 uptime  > "$ART/00_pre_uptime.txt"
 systemctl get-default > "$ART/00_target.txt"
-systemctl is-active sddm 2>&1 > "$ART/00_sddm_status.txt" || true
+systemctl is-active sddm > "$ART/00_sddm_status.txt" 2>&1 || true
 
 start_server() {
   local name=$1 ; shift
