@@ -1,6 +1,13 @@
 //! Phosphor sub-aqua palette: Drowned God + Alienware.
 //! Deep ocean base, phosphor-green data, cyan live values, amber warnings,
 //! salt-rust accents on damaged/idle indicators.
+//!
+//! This is the project's complete, named color vocabulary — a deliberate API
+//! surface. A few entries (`HULL`, `SONAR_DIM`, `KRAKEN_INK`, `s_accent`) are
+//! not painted by the current panes but are kept so the palette stays whole
+//! and the still-landing panes (memory recall, tool-call streaming) have the
+//! tokens they need without re-deriving colors. Hence the module-level allow.
+#![allow(dead_code)]
 
 use ratatui::style::{Color, Modifier, Style};
 
@@ -21,7 +28,10 @@ pub fn s_pane_border() -> Style {
 }
 
 pub fn s_title() -> Style {
-    Style::default().fg(BONE).bg(ABYSS).add_modifier(Modifier::BOLD)
+    Style::default()
+        .fg(BONE)
+        .bg(ABYSS)
+        .add_modifier(Modifier::BOLD)
 }
 
 pub fn s_text() -> Style {
@@ -33,11 +43,17 @@ pub fn s_text_dim() -> Style {
 }
 
 pub fn s_live() -> Style {
-    Style::default().fg(SONAR_CYAN).bg(ABYSS).add_modifier(Modifier::BOLD)
+    Style::default()
+        .fg(SONAR_CYAN)
+        .bg(ABYSS)
+        .add_modifier(Modifier::BOLD)
 }
 
 pub fn s_warn() -> Style {
-    Style::default().fg(AMBER).bg(ABYSS).add_modifier(Modifier::BOLD)
+    Style::default()
+        .fg(AMBER)
+        .bg(ABYSS)
+        .add_modifier(Modifier::BOLD)
 }
 
 pub fn s_idle() -> Style {

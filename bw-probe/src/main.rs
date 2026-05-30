@@ -40,11 +40,14 @@ fn main() -> Result<()> {
         let instance = entry.create_instance(&instance_info, None)?;
 
         let pdevs = instance.enumerate_physical_devices()?;
-        let pdev = pdevs.into_iter().find(|&pd| {
-            let props = instance.get_physical_device_properties(pd);
-            let name = std::ffi::CStr::from_ptr(props.device_name.as_ptr()).to_string_lossy();
-            name.to_lowercase().contains("amd") || name.to_lowercase().contains("radeon")
-        }).ok_or_else(|| anyhow!("no AMD/Radeon device found"))?;
+        let pdev = pdevs
+            .into_iter()
+            .find(|&pd| {
+                let props = instance.get_physical_device_properties(pd);
+                let name = std::ffi::CStr::from_ptr(props.device_name.as_ptr()).to_string_lossy();
+                name.to_lowercase().contains("amd") || name.to_lowercase().contains("radeon")
+            })
+            .ok_or_else(|| anyhow!("no AMD/Radeon device found"))?;
 
         let pdev_props = instance.get_physical_device_properties(pdev);
         let pdev_name = std::ffi::CStr::from_ptr(pdev_props.device_name.as_ptr()).to_string_lossy();
@@ -56,30 +59,60 @@ fn main() -> Result<()> {
 
         // Find a compute-capable queue family
         let qf_props = instance.get_physical_device_queue_family_properties(pdev);
-        let qf_idx = qf_props.iter().enumerate().find_map(|(i, q)| {
-            if q.queue_flags.contains(vk::QueueFlags::COMPUTE) { Some(i as u32) } else { None }
-        }).ok_or_else(|| anyhow!("no compute queue family"))?;
+        let qf_idx = qf_props
+            .iter()
+            .enumerate()
+            .find_map(|(i, q)| {
+                if q.queue_flags.contains(vk::QueueFlags::COMPUTE) {
+                    Some(i as u32)
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| anyhow!("no compute queue family"))?;
 
         let priorities = [1.0f32];
         let queue_info = vk::DeviceQueueCreateInfo::default()
             .queue_family_index(qf_idx)
             .queue_priorities(&priorities);
-        let device_info = vk::DeviceCreateInfo::default()
-            .queue_create_infos(std::slice::from_ref(&queue_info));
+        let device_info =
+            vk::DeviceCreateInfo::default().queue_create_infos(std::slice::from_ref(&queue_info));
         let device = instance.create_device(pdev, &device_info, None)?;
         let queue = device.get_device_queue(qf_idx, 0);
 
         // Pick the largest DEVICE_LOCAL heap that we can map (HOST_VISIBLE optional)
-        let mem_type_idx_dev_local = (0..mem_props.memory_type_count).find(|&i| {
-            mem_props.memory_types[i as usize].property_flags.contains(vk::MemoryPropertyFlags::DEVICE_LOCAL)
-        }).ok_or_else(|| anyhow!("no DEVICE_LOCAL memory type"))?;
+        let mem_type_idx_dev_local = (0..mem_props.memory_type_count)
+            .find(|&i| {
+                mem_props.memory_types[i as usize]
+                    .property_flags
+                    .contains(vk::MemoryPropertyFlags::DEVICE_LOCAL)
+            })
+            .ok_or_else(|| anyhow!("no DEVICE_LOCAL memory type"))?;
         println!("using memory type index: {}", mem_type_idx_dev_local);
 
         // Run COPY (2-buffer) and TRIAD (3-buffer)
-        run_kernel(&device, queue, qf_idx, mem_type_idx_dev_local, timestamp_period, "COPY",
-            COPY_SPV, 2, /*push_constants=*/&[(WORKING_SET_BYTES / 16) as u32, LOOPS_PER_DISPATCH])?;
-        run_kernel(&device, queue, qf_idx, mem_type_idx_dev_local, timestamp_period, "TRIAD",
-            TRIAD_SPV, 3, /*push_constants=*/&[(WORKING_SET_BYTES / 16) as u32, LOOPS_PER_DISPATCH, 3])?;
+        run_kernel(
+            &device,
+            queue,
+            qf_idx,
+            mem_type_idx_dev_local,
+            timestamp_period,
+            "COPY",
+            COPY_SPV,
+            2,
+            /*push_constants=*/ &[(WORKING_SET_BYTES / 16) as u32, LOOPS_PER_DISPATCH],
+        )?;
+        run_kernel(
+            &device,
+            queue,
+            qf_idx,
+            mem_type_idx_dev_local,
+            timestamp_period,
+            "TRIAD",
+            TRIAD_SPV,
+            3,
+            /*push_constants=*/ &[(WORKING_SET_BYTES / 16) as u32, LOOPS_PER_DISPATCH, 3],
+        )?;
 
         device.destroy_device(None);
         instance.destroy_instance(None);
@@ -87,6 +120,9 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+// Vulkan setup needs every one of these handles threaded through; bundling
+// them into a struct would only move the plumbing without simplifying it.
+#[allow(clippy::too_many_arguments)]
 unsafe fn run_kernel(
     device: &ash::Device,
     queue: vk::Queue,
@@ -100,11 +136,17 @@ unsafe fn run_kernel(
 ) -> Result<()> {
     println!("\n=== {} ===", label);
     let bytes_per_iter = WORKING_SET_BYTES * (n_buffers as u64); // r+w sum
-    println!("buffers: {} × {} MB = {} MB working set",
-        n_buffers, WORKING_SET_BYTES / (1024 * 1024),
-        n_buffers as u64 * WORKING_SET_BYTES / (1024 * 1024));
-    println!("bytes per dispatch (incl. {} loops): {} MB",
-        LOOPS_PER_DISPATCH, bytes_per_iter * LOOPS_PER_DISPATCH as u64 / (1024 * 1024));
+    println!(
+        "buffers: {} × {} MB = {} MB working set",
+        n_buffers,
+        WORKING_SET_BYTES / (1024 * 1024),
+        n_buffers as u64 * WORKING_SET_BYTES / (1024 * 1024)
+    );
+    println!(
+        "bytes per dispatch (incl. {} loops): {} MB",
+        LOOPS_PER_DISPATCH,
+        bytes_per_iter * LOOPS_PER_DISPATCH as u64 / (1024 * 1024)
+    );
 
     // --- Allocate buffers ---
     let mut buffers = Vec::with_capacity(n_buffers);
@@ -119,20 +161,24 @@ unsafe fn run_kernel(
         let alloc_info = vk::MemoryAllocateInfo::default()
             .allocation_size(req.size)
             .memory_type_index(mem_type_idx);
-        let mem = device.allocate_memory(&alloc_info, None).context("allocate_memory")?;
+        let mem = device
+            .allocate_memory(&alloc_info, None)
+            .context("allocate_memory")?;
         device.bind_buffer_memory(buf, mem, 0)?;
         buffers.push(buf);
         memories.push(mem);
     }
 
     // --- Descriptor set layout: n_buffers storage buffers ---
-    let bindings: Vec<vk::DescriptorSetLayoutBinding> = (0..n_buffers).map(|i| {
-        vk::DescriptorSetLayoutBinding::default()
-            .binding(i as u32)
-            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::COMPUTE)
-    }).collect();
+    let bindings: Vec<vk::DescriptorSetLayoutBinding> = (0..n_buffers)
+        .map(|i| {
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(i as u32)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE)
+        })
+        .collect();
     let dsl_info = vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings);
     let dsl = device.create_descriptor_set_layout(&dsl_info, None)?;
 
@@ -146,9 +192,10 @@ unsafe fn run_kernel(
     let pl = device.create_pipeline_layout(&pl_info, None)?;
 
     // --- Shader module + pipeline ---
-    let spv_aligned: Vec<u32> = spv_bytes.chunks(4).map(|c| {
-        u32::from_le_bytes([c[0], c[1], c[2], c[3]])
-    }).collect();
+    let spv_aligned: Vec<u32> = spv_bytes
+        .chunks(4)
+        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
     let sm_info = vk::ShaderModuleCreateInfo::default().code(&spv_aligned);
     let shader_module = device.create_shader_module(&sm_info, None)?;
     let entry_name = CString::new("main")?;
@@ -159,7 +206,8 @@ unsafe fn run_kernel(
     let pipeline_info = vk::ComputePipelineCreateInfo::default()
         .stage(stage)
         .layout(pl);
-    let pipelines = device.create_compute_pipelines(vk::PipelineCache::null(), &[pipeline_info], None)
+    let pipelines = device
+        .create_compute_pipelines(vk::PipelineCache::null(), &[pipeline_info], None)
         .map_err(|(_, e)| anyhow!("create_compute_pipelines: {:?}", e))?;
     let pipeline = pipelines[0];
 
@@ -176,19 +224,26 @@ unsafe fn run_kernel(
         .set_layouts(std::slice::from_ref(&dsl));
     let ds = device.allocate_descriptor_sets(&ds_alloc)?[0];
 
-    let buf_infos: Vec<vk::DescriptorBufferInfo> = buffers.iter().map(|&b| {
-        vk::DescriptorBufferInfo::default()
-            .buffer(b)
-            .offset(0)
-            .range(vk::WHOLE_SIZE)
-    }).collect();
-    let writes: Vec<vk::WriteDescriptorSet> = buf_infos.iter().enumerate().map(|(i, info)| {
-        vk::WriteDescriptorSet::default()
-            .dst_set(ds)
-            .dst_binding(i as u32)
-            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-            .buffer_info(std::slice::from_ref(info))
-    }).collect();
+    let buf_infos: Vec<vk::DescriptorBufferInfo> = buffers
+        .iter()
+        .map(|&b| {
+            vk::DescriptorBufferInfo::default()
+                .buffer(b)
+                .offset(0)
+                .range(vk::WHOLE_SIZE)
+        })
+        .collect();
+    let writes: Vec<vk::WriteDescriptorSet> = buf_infos
+        .iter()
+        .enumerate()
+        .map(|(i, info)| {
+            vk::WriteDescriptorSet::default()
+                .dst_set(ds)
+                .dst_binding(i as u32)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .buffer_info(std::slice::from_ref(info))
+        })
+        .collect();
     device.update_descriptor_sets(&writes, &[]);
 
     // --- Command pool + buffer + timestamp query ---
@@ -210,9 +265,14 @@ unsafe fn run_kernel(
     // Compute dispatch geometry: enough WGs to cover the buffer
     let n_vec4 = (WORKING_SET_BYTES / 16) as u32;
     // We don't need 1 invocation per element — the shader strides. Use a moderate dispatch.
-    let wg_count = ((n_vec4 + WG_SIZE - 1) / WG_SIZE).min(65535);
+    let wg_count = n_vec4.div_ceil(WG_SIZE).min(65535);
 
-    println!("dispatch: {} workgroups × {} threads = {} invocations", wg_count, WG_SIZE, wg_count * WG_SIZE);
+    println!(
+        "dispatch: {} workgroups × {} threads = {} invocations",
+        wg_count,
+        WG_SIZE,
+        wg_count * WG_SIZE
+    );
 
     let mut best_gbps = 0.0f64;
     for trial in 0..TRIALS {
@@ -242,7 +302,9 @@ unsafe fn run_kernel(
         // Read timestamps
         let mut ts = [0u64; 2];
         device.get_query_pool_results(
-            qp, 0, &mut ts,
+            qp,
+            0,
+            &mut ts,
             vk::QueryResultFlags::TYPE_64 | vk::QueryResultFlags::WAIT,
         )?;
         let gpu_ns = (ts[1].saturating_sub(ts[0])) as f64 * timestamp_period as f64;
@@ -251,8 +313,14 @@ unsafe fn run_kernel(
         let gbps_gpu = bytes_total / gpu_dt / 1e9;
         let gbps_wall = bytes_total / wall_dt / 1e9;
 
-        println!("  trial {}: gpu={:.3} ms ({:.2} GB/s)  wall={:.3} ms ({:.2} GB/s)",
-            trial + 1, gpu_dt * 1000.0, gbps_gpu, wall_dt * 1000.0, gbps_wall);
+        println!(
+            "  trial {}: gpu={:.3} ms ({:.2} GB/s)  wall={:.3} ms ({:.2} GB/s)",
+            trial + 1,
+            gpu_dt * 1000.0,
+            gbps_gpu,
+            wall_dt * 1000.0,
+            gbps_wall
+        );
         if gbps_gpu > best_gbps {
             best_gbps = gbps_gpu;
         }
@@ -267,7 +335,11 @@ unsafe fn run_kernel(
     device.destroy_pipeline_layout(pl, None);
     device.destroy_shader_module(shader_module, None);
     device.destroy_descriptor_set_layout(dsl, None);
-    for b in buffers { device.destroy_buffer(b, None); }
-    for m in memories { device.free_memory(m, None); }
+    for b in buffers {
+        device.destroy_buffer(b, None);
+    }
+    for m in memories {
+        device.free_memory(m, None);
+    }
     Ok(())
 }

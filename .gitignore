@@ -6,6 +6,10 @@ Cargo.lock
 # Local-only paths in scripts (point to /tmp)
 /tmp/
 
+# Python bytecode cache
+__pycache__/
+*.pyc
+
 # Editor/OS junk
 .vscode/
 .idea/
